@@ -121,7 +121,7 @@ urlencoding = "2.1"
 
 # Syntax & Parsing
 syntect = { version = "5.2", default-features = false, features = ["default-fancy"] }
-tree-sitter = "0.26"
+tree-sitter = "0.27"
 pulldown-cmark = "0.13"
 
 # LSP
