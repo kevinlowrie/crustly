@@ -553,7 +553,14 @@ fn prepare_generation(
         .unwrap_or(DEFAULT_MAX_TOKENS)
         .min(n_ctx.saturating_sub(prompt_tokens.len() as u32));
 
-    let sampler = build_sampler(sampling_defaults, request, default_seed, 0, None);
+    let sampler = build_sampler(
+        model.n_vocab(),
+        sampling_defaults,
+        request,
+        default_seed,
+        0,
+        None,
+    );
 
     // Prefill: decode the whole prompt in one batch. `add_sequence` sets
     // logits=true only on the last token, which is all prefill needs -
@@ -672,6 +679,7 @@ fn run_complete(
             }
 
             maybe_swap_to_constrained_sampler(
+                model.n_vocab(),
                 &text_so_far,
                 swap_possible,
                 &mut grammar_swap_attempted,
@@ -859,6 +867,7 @@ fn run_stream(
             // accumulates the same way, so the trigger and the replay must
             // agree on which window of the response they're each looking at.
             maybe_swap_to_constrained_sampler(
+                model.n_vocab(),
                 &full_text,
                 swap_possible,
                 &mut grammar_swap_attempted,
@@ -1064,7 +1073,13 @@ fn token_to_piece_bytes(
 /// was instead of continuing independently - offsetting by the token count
 /// keeps the result deterministic for a given seed + prefix length without
 /// literally repeating the start of the stream.
+///
+/// `n_vocab` is the loaded model's vocabulary size ([`LlamaModel::n_vocab`]).
+/// `llama-cpp-2` 0.1.156 added it as `LlamaSampler::penalties`'s new first
+/// parameter (previously just `penalty_last_n`/`penalty_repeat`/
+/// `penalty_freq`/`penalty_present`).
 fn build_sampler(
+    n_vocab: i32,
     defaults: &SamplingDefaults,
     request: &LLMRequest,
     default_seed: Option<u32>,
@@ -1100,6 +1115,7 @@ fn build_sampler(
 
     chain.extend([
         LlamaSampler::penalties(
+            n_vocab,
             64,
             defaults.repeat_penalty,
             frequency_penalty,
@@ -1181,8 +1197,10 @@ fn build_grammar_env(_model: &LlamaModel) -> Option<ToolCallGrammarEnv> {
 /// it does not corrupt or block generation. Confirmed by reading
 /// `llguidance` 1.7.6's `Matcher::consume_tokens`/`with_inner` and
 /// `llama-cpp-2` 0.1.153's `llguidance_sampler.rs` directly, not assumed.
+#[allow(clippy::too_many_arguments)]
 #[cfg(feature = "llama-cpp-llguidance")]
 fn try_build_constrained_sampler(
+    n_vocab: i32,
     grammar_env: &ToolCallGrammarEnv,
     offered_tools: &[Tool],
     generated_tokens: &[LlamaToken],
@@ -1193,6 +1211,7 @@ fn try_build_constrained_sampler(
     match super::llama_cpp_grammar::build_tool_call_sampler(grammar_env, offered_tools) {
         Ok(grammar_sampler) => {
             let mut chain = build_sampler(
+                n_vocab,
                 defaults,
                 request,
                 default_seed,
@@ -1218,8 +1237,10 @@ fn try_build_constrained_sampler(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 #[cfg(not(feature = "llama-cpp-llguidance"))]
 fn try_build_constrained_sampler(
+    _n_vocab: i32,
     _grammar_env: &ToolCallGrammarEnv,
     _offered_tools: &[Tool],
     _generated_tokens: &[LlamaToken],
@@ -1243,6 +1264,7 @@ fn try_build_constrained_sampler(
 /// once per response regardless of caller.
 #[allow(clippy::too_many_arguments)]
 fn maybe_swap_to_constrained_sampler(
+    n_vocab: i32,
     text: &str,
     swap_possible: bool,
     grammar_swap_attempted: &mut bool,
@@ -1265,6 +1287,7 @@ fn maybe_swap_to_constrained_sampler(
         return;
     };
     if let Some(constrained) = try_build_constrained_sampler(
+        n_vocab,
         grammar_env,
         offered_tools,
         generated_tokens,
@@ -1514,8 +1537,8 @@ mod tests {
         let defaults = SamplingDefaults::default();
         let request = LLMRequest::new("llama-cpp-model", vec![]);
 
-        let unshifted = build_sampler(&defaults, &request, Some(42), 0, None);
-        let shifted = build_sampler(&defaults, &request, Some(42), 17, None);
+        let unshifted = build_sampler(32_000, &defaults, &request, Some(42), 0, None);
+        let shifted = build_sampler(32_000, &defaults, &request, Some(42), 17, None);
 
         assert_eq!(unshifted.get_seed(), 42);
         assert_eq!(shifted.get_seed(), 42u32.wrapping_add(17));
@@ -1688,6 +1711,7 @@ mod tests {
         let request = LLMRequest::new("llama-cpp-model", vec![]);
 
         let sampler = try_build_constrained_sampler(
+            32_000,
             &grammar_env,
             &tools,
             &[],
@@ -1716,6 +1740,7 @@ mod tests {
         let generated = [LlamaToken(0), LlamaToken(1), LlamaToken(2)];
 
         let sampler = try_build_constrained_sampler(
+            32_000,
             &grammar_env,
             &tools,
             &generated,
@@ -1737,6 +1762,7 @@ mod tests {
         let request = LLMRequest::new("llama-cpp-model", vec![]);
 
         let sampler = try_build_constrained_sampler(
+            32_000,
             &(),
             &tools,
             &[],
