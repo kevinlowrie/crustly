@@ -307,6 +307,9 @@ pub struct McpServerConfig {
     pub command: String,
     #[serde(default)]
     pub args: Vec<String>,
+    /// Abort headless run startup if initialization or tool discovery fails.
+    #[serde(default)]
+    pub required: bool,
 }
 
 /// Tool result cache configuration (`[tool_cache]` section).
@@ -1421,6 +1424,20 @@ impl Config {
 mod tests {
     use super::*;
     use tempfile::NamedTempFile;
+
+    #[test]
+    fn mcp_server_required_defaults_to_optional() {
+        let base = "name = \"fixture\"\ncommand = \"fixture-command\"\n";
+        for (flag, expected) in [
+            ("", false),
+            ("required = false", false),
+            ("required = true", true),
+        ] {
+            let server: McpServerConfig = toml::from_str(&format!("{base}{flag}"))
+                .expect("MCP server configuration should deserialize");
+            assert_eq!(server.required, expected);
+        }
+    }
 
     /// `--model` must land on the provider `create_provider` will actually select.
     /// If it set the model on a *different* provider, the override would silently

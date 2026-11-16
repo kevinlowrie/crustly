@@ -1302,9 +1302,6 @@ async fn cmd_run(
     let db = Database::connect(&config.database.path).await?;
     db.run_migrations().await?;
 
-    // Select provider based on configuration using factory
-    let provider = crate::llm::provider::create_provider(config)?;
-
     // Create tool registry (same built-in set as the interactive chat agent
     // - see build_tool_registry's doc comment).
     let mut tool_registry = build_tool_registry();
@@ -1327,10 +1324,20 @@ async fn cmd_run(
                 );
             }
             Err(e) => {
+                if server.required {
+                    // Upstream error text may contain credentials or task data.
+                    anyhow::bail!(
+                        "Required MCP server '{}' failed during startup",
+                        server.name
+                    );
+                }
                 tracing::warn!("Failed to connect to MCP server '{}': {}", server.name, e);
             }
         }
     }
+
+    // Required MCP startup must finish before provider bootstrap can send requests.
+    let provider = crate::llm::provider::create_provider(config)?;
 
     // Install the [security] policy chain, as in the interactive path above.
     tool_registry.set_policy(config.security.to_policy().into());
@@ -2948,6 +2955,7 @@ mod tests {
             name: "broken".to_string(),
             command: "definitely-not-a-real-binary".to_string(),
             args: vec![],
+            required: false,
         });
         let mut registry = build_tool_registry();
 
