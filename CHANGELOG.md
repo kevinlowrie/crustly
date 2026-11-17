@@ -14,6 +14,7 @@ Building Crustly now needs Rust 1.95 or newer (`rust-version = "1.95"`). The dec
 A request whose prompt already fills the context window used to go out with a one-token answer budget, and came back cut off or rejected. Crustly now frees context first (dropping old tool output, then older turns), hands the request to the configured `[fallback]` provider, or stops with a "Context too large" error before sending anything. The final answer at a round or time limit does the same, keeping the last reply when there is no room to ask for a new one. A window left with only a few hundred tokens for the answer is also cut deeper when the conversation, not the system prompt and tools, is what fills it.
 
 #### Fixes
+- MCP clients now send the initialized notification before discovery, preserve canonical `inputSchema` tool definitions, and reject malformed tool lists instead of treating them as empty. Legacy `input_schema` remains supported.
 - Claude models other than the four Claude 3 ids were budgeted as a 4,096-token window instead of 200k: only the core tools, constant compaction, and prompts refused as too large.
 - A fallback provider that reports no context window for its model was measured against the local window it replaces, so an overflow never reached it.
 - With the model router on, the answer budget now always comes from the routed model's window.

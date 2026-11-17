@@ -65,6 +65,7 @@ fn match_response_line(line: &str, expected_id: u64) -> ResponseMatch {
 pub struct McpToolDef {
     pub name: String,
     pub description: Option<String>,
+    #[serde(rename = "inputSchema", alias = "input_schema")]
     pub input_schema: Option<Value>,
 }
 
@@ -122,6 +123,15 @@ impl MCPClient {
             )
             .await?;
 
+        // Initialization completes with an id-less notification before discovery.
+        use tokio::io::AsyncWriteExt;
+        client
+            .stdin
+            .write_all(b"{\"jsonrpc\":\"2.0\",\"method\":\"notifications/initialized\"}\n")
+            .await
+            .context("failed to notify MCP server of initialization")?;
+        client.stdin.flush().await?;
+
         Ok(client)
     }
 
@@ -130,9 +140,9 @@ impl MCPClient {
         let result = self.send_request("tools/list", None).await?;
         let tools = result
             .get("tools")
-            .and_then(|v| serde_json::from_value::<Vec<McpToolDef>>(v.clone()).ok())
-            .unwrap_or_default();
-        Ok(tools)
+            .context("MCP tools/list response is missing tools")?;
+        serde_json::from_value::<Vec<McpToolDef>>(tools.clone())
+            .map_err(|_| anyhow::anyhow!("MCP tools/list response has malformed tools"))
     }
 
     /// Call a specific tool on the server.
